@@ -1,0 +1,2 @@
+description = "网络看门狗（luci-app-watchcat）"
+packages = ["luci-app-watchcat"]

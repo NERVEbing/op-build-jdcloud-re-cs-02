@@ -1,0 +1,2 @@
+description = "全锥形 NAT（luci-app-fullconenat-sonic）"
+packages = ["luci-app-fullconenat-sonic"]

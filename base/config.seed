@@ -1,0 +1,16 @@
+# Build options shared by every profile. Target selection symbols are
+# generated from base.toml; feature-owned packages are controlled only by the
+# profile's feature list. Neither may appear in any seed.
+
+CONFIG_DEVEL=y
+CONFIG_CCACHE=y
+# CONFIG_TARGET_ROOTFS_INITRAMFS is not set
+
+CONFIG_PACKAGE_luci=y
+CONFIG_LUCI_LANG_zh_Hans=y
+CONFIG_PACKAGE_zoneinfo-asia=y
+CONFIG_PACKAGE_default-settings=y
+CONFIG_PACKAGE_default-settings-chn=y
+
+# Keep this feed out of the firmware package sources.
+# CONFIG_FEED_video is not set

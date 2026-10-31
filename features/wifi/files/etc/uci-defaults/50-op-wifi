@@ -1,0 +1,174 @@
+#!/bin/sh
+# Configure radios, access points and extra networks from /etc/op-build/wifi.
+# 45-op-cleanup has already removed what an earlier op-build firmware created.
+
+OP_TAG=op-wifi
+# shellcheck source-path=SCRIPTDIR source=../../../../../base/files/usr/share/op-build/functions.sh
+. /usr/share/op-build/functions.sh
+
+# Device paths read from RE-CS-02; stop if upstream changes radio detection.
+radio_path() {
+  case "$1" in
+    radio0) echo 'platform/soc@0/c000000.wifi' ;;
+    radio1) echo 'platform/soc@0/c000000.wifi+1' ;;
+    radio2) echo 'soc@0/20000000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0' ;;
+  esac
+}
+
+[ -s /etc/config/wireless ] || wifi config
+for radio in radio0 radio1 radio2; do
+  [ "$(uci -q get "wireless.$radio")" = wifi-device ] || op_fail "wireless device $radio is missing"
+  [ "$(uci -q get "wireless.$radio.path")" = "$(radio_path "$radio")" ] \
+    || op_fail "wireless.$radio.path does not match the RE-CS-02 hardware"
+done
+[ "$(uci -q get network.lan.device)" = br-lan ] || op_fail "expected br-lan as the LAN device"
+
+lan_zone=''
+for zone in $(op_sections firewall zone); do
+  [ "$(uci -q get "firewall.$zone.name")" = lan ] || continue
+  [ -z "$lan_zone" ] || op_fail "multiple firewall zones are named lan"
+  lan_zone=$zone
+done
+[ -n "$lan_zone" ] || op_fail "the lan firewall zone is missing"
+for policy in input output forward; do
+  [ "$(uci -q get "firewall.$lan_zone.$policy")" = ACCEPT ] || op_fail "the lan firewall zone is not trusted"
+done
+
+networks=''
+for section in $(op_param_sections wifi networks); do
+  networks="$networks ${section#networks_}"
+done
+
+# Names must not be used by configuration that this project does not own.
+for name in $networks; do
+  if uci -q get "network.$name" >/dev/null; then
+    op_fail "network.$name already exists"
+  fi
+  for section in $(op_sections network device); do
+    [ "$(uci -q get "network.$section.name")" != "br-$name" ] || op_fail "device br-$name already exists"
+  done
+  for section in $(op_sections firewall zone); do
+    [ "$(uci -q get "firewall.$section.name")" != "$name" ] || op_fail "firewall zone $name already exists"
+  done
+  for section in $(op_sections dhcp dhcp); do
+    [ "$(uci -q get "dhcp.$section.interface")" != "$name" ] || op_fail "a dhcp section already serves $name"
+  done
+done
+
+op_begin network wireless dhcp firewall
+
+while uci -q delete 'wireless.@wifi-iface[0]'; do :; done
+country=$(op_param wifi.main.country)
+quiet=$(op_param wifi.main.quiet_log)
+for radio in radio0 radio1 radio2; do
+  op_set "wireless.$radio.country=$country"
+  # Enabled again below when an access point uses the radio.
+  op_set "wireless.$radio.disabled=1"
+  for option in channel htmode; do
+    value=$(op_param "wifi.radios_$radio.$option")
+    [ -z "$value" ] || op_set "wireless.$radio.$option=$value"
+  done
+  if [ "$quiet" = 1 ]; then
+    op_set "wireless.$radio.log_level=4"
+  else
+    uci -q delete "wireless.$radio.log_level"
+  fi
+done
+
+for section in $(op_param_sections wifi ap); do
+  name=$(op_param "wifi.$section.name")
+  radio=$(op_param "wifi.$section.radio")
+  network=$(op_param "wifi.$section.network")
+  encryption=$(op_param "wifi.$section.encryption")
+  isolate=0
+  if [ "$network" != lan ] && [ "$(op_param "wifi.networks_$network.access")" = internet ]; then
+    isolate=1
+  fi
+  op_set "wireless.$name=wifi-iface"
+  op_set "wireless.$name.device=$radio"
+  op_set "wireless.$name.mode=ap"
+  op_set "wireless.$name.network=$network"
+  op_set "wireless.$name.ssid=$(op_param "wifi.$section.ssid")"
+  op_set "wireless.$name.encryption=$encryption"
+  if [ "$encryption" != none ]; then
+    op_set "wireless.$name.key=$(op_param "wifi.$section.key")"
+  fi
+  op_set "wireless.$name.isolate=$isolate"
+  # isolate only separates clients of one access point; bridge_isolate also
+  # stops forwarding between access points that share the network's bridge.
+  op_set "wireless.$name.bridge_isolate=$isolate"
+  uci -q delete "wireless.$radio.disabled"
+done
+
+mkdir -p /etc/nftables.d || exit 1
+for name in $networks; do
+  subnet=$(op_param "wifi.networks_$name.subnet")
+  gateway=${subnet%/*}
+
+  op_set "network.op_${name}_dev=device"
+  op_set "network.op_${name}_dev.name=br-$name"
+  op_set "network.op_${name}_dev.type=bridge"
+  op_set "network.op_${name}_dev.bridge_empty=1"
+  op_set "network.op_${name}_dev.ipv6=0"
+  op_set "network.$name=interface"
+  op_set "network.$name.device=br-$name"
+  op_set "network.$name.proto=static"
+  op_set "network.$name.ipaddr=$gateway"
+  op_set "network.$name.netmask=255.255.255.0"
+  op_set "network.$name.delegate=0"
+
+  op_set "dhcp.op_$name=dhcp"
+  op_set "dhcp.op_$name.interface=$name"
+  op_set "dhcp.op_$name.start=100"
+  op_set "dhcp.op_$name.limit=100"
+  op_set "dhcp.op_$name.leasetime=2h"
+  op_set "dhcp.op_$name.dhcpv4=server"
+  op_set "dhcp.op_$name.ra=disabled"
+  op_set "dhcp.op_$name.dhcpv6=disabled"
+  op_set "dhcp.op_$name.ndp=disabled"
+
+  if [ "$(op_param "wifi.networks_$name.access")" = lan ]; then
+    case " $(uci -q get "firewall.$lan_zone.network") " in
+      *" $name "*) ;;
+      *) uci add_list "firewall.$lan_zone.network=$name" || exit 1 ;;
+    esac
+    continue
+  fi
+
+  op_set "firewall.op_${name}_zone=zone"
+  op_set "firewall.op_${name}_zone.name=$name"
+  op_set "firewall.op_${name}_zone.network=$name"
+  op_set "firewall.op_${name}_zone.device=br-$name"
+  op_set "firewall.op_${name}_zone.input=REJECT"
+  op_set "firewall.op_${name}_zone.output=ACCEPT"
+  op_set "firewall.op_${name}_zone.forward=REJECT"
+
+  op_set "firewall.op_${name}_wan=forwarding"
+  op_set "firewall.op_${name}_wan.src=$name"
+  op_set "firewall.op_${name}_wan.dest=wan"
+  op_set "firewall.op_${name}_wan.family=ipv4"
+
+  op_set "firewall.op_${name}_dhcp=rule"
+  op_set "firewall.op_${name}_dhcp.name=Allow-$name-DHCP"
+  op_set "firewall.op_${name}_dhcp.src=$name"
+  op_set "firewall.op_${name}_dhcp.proto=udp"
+  op_set "firewall.op_${name}_dhcp.src_port=68"
+  op_set "firewall.op_${name}_dhcp.dest_port=67"
+  op_set "firewall.op_${name}_dhcp.family=ipv4"
+  op_set "firewall.op_${name}_dhcp.target=ACCEPT"
+
+  op_set "firewall.op_${name}_dns=rule"
+  op_set "firewall.op_${name}_dns.name=Allow-$name-DNS"
+  op_set "firewall.op_${name}_dns.src=$name"
+  op_set "firewall.op_${name}_dns.proto=tcp udp"
+  op_set "firewall.op_${name}_dns.dest_ip=$gateway"
+  op_set "firewall.op_${name}_dns.dest_port=53"
+  op_set "firewall.op_${name}_dns.family=ipv4"
+  op_set "firewall.op_${name}_dns.target=ACCEPT"
+
+  # Rules come from the ROM; /etc/nftables.d is kept across upgrades.
+  cp "/usr/share/op-build/nftables/$name.nft" "/etc/nftables.d/30-op-$name.nft" || exit 1
+done
+
+op_commit
+exit 0

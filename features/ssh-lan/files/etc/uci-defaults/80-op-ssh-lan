@@ -1,0 +1,18 @@
+#!/bin/sh
+# Serve SSH on the LAN address with password login. "Interface" binds the
+# address, so networks routed through the LAN zone reach it as well; the
+# upstream default "DirectInterface" binds the br-lan device only.
+
+OP_TAG=op-ssh-lan
+# shellcheck source-path=SCRIPTDIR source=../../../../../base/files/usr/share/op-build/functions.sh
+. /usr/share/op-build/functions.sh
+
+op_begin dropbear
+for section in $(op_sections dropbear dropbear); do
+    uci delete "dropbear.$section" || exit 1
+done
+op_set dropbear.main=dropbear
+op_set dropbear.main.Interface=lan
+op_set dropbear.main.PasswordAuth=on
+op_commit
+exit 0

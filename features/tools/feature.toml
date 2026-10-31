@@ -1,0 +1,7 @@
+description = "常用命令行、存储与 USB 诊断工具"
+packages = [
+    "bash", "curl", "lsof", "htop", "iperf3",
+    "blkid", "fdisk", "lsblk", "resize2fs", "tune2fs", "dmesg",
+    # input-support is required by usbutils through libudev-zero and libevdev.
+    "usbutils", "input-support",
+]

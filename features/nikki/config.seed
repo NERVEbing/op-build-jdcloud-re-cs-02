@@ -1,0 +1,2 @@
+# Keep the nikki feed out of the firmware package sources.
+# CONFIG_FEED_nikki is not set

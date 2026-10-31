@@ -1,0 +1,45 @@
+# Fixture profile for tests/firmware (fake values only).
+# After changing it, run: uv run --python 3.12 python tests/firmware/render.py
+features = ["pppoe", "ssh-lan", "wifi", "zerotier"]
+
+[system]
+hostname = "Demo"
+lan_ip = "192.168.50.1"
+
+[wifi]
+quiet_log = true
+radios.radio0 = { channel = 149, htmode = "HE80" }
+radios.radio1 = { channel = 1, htmode = "HE20" }
+radios.radio2 = { channel = 36, htmode = "HE80" }
+networks.wifi = { subnet = "172.16.0.1/24", access = "lan" }
+networks.guest = { subnet = "172.16.1.1/24", access = "internet" }
+networks.iot = { subnet = "172.16.2.1/24", access = "internet" }
+
+[[wifi.ap]]
+name = "main"
+radio = "radio0"
+ssid = "Main 'quoted' SSID"
+key = "main-key-12345"
+network = "wifi"
+
+[[wifi.ap]]
+name = "iot"
+radio = "radio1"
+ssid = "IoT"
+key = "iot-key-12345"
+network = "iot"
+
+[[wifi.ap]]
+name = "guest"
+radio = "radio2"
+ssid = "Guest"
+key = "guest-key-1234"
+encryption = "sae-mixed"
+network = "guest"
+
+[pppoe]
+username = "user@isp"
+password = "p'a\"ss w$rd"
+
+[zerotier]
+networks = ["0123456789abcdef"]

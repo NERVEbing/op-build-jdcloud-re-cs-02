@@ -1,0 +1,309 @@
+#!/usr/bin/env bash
+# Host CLI. Builds run in a container on x86_64 Linux; push syncs to a remote build host.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOCKER="${OP_DOCKER:-docker}"
+IMAGE="${OP_IMAGE:-op-build-jdcloud-re-cs-02:24.04}"
+MOUNT=/builder
+
+C_RED=$'\033[0;31m'
+C_GRN=$'\033[0;32m'
+C_YEL=$'\033[0;33m'
+C_OFF=$'\033[0m'
+log() { echo "${C_GRN}[op]${C_OFF} $*"; }
+warn() { echo "${C_YEL}[op]${C_OFF} $*" >&2; }
+die() {
+  echo "${C_RED}[op] Error:${C_OFF} $*" >&2
+  exit 1
+}
+
+# OpenWrt packages may refuse to build as root.
+BUILD_UID="${OP_UID:-$(id -u)}"
+BUILD_GID="${OP_GID:-$(id -g)}"
+[ "$BUILD_UID" != "0" ] || BUILD_UID=1000
+[ "$BUILD_GID" != "0" ] || BUILD_GID=1000
+
+usage() {
+  cat <<EOF
+Usage: op <command> [args]
+
+  image [--no-cache]        Build the container image ($IMAGE)
+  list                      List local profiles and available features
+  info <profile>            Show the resolved profile with secrets masked
+  setup <profile>           Prepare sources, feeds, configuration and files
+  compile <profile> [-j N]  Compile and collect artifacts
+  build <profile> [-j N]    setup + compile
+  shell                     Open a container shell in workspace/src
+  clean                     Remove build outputs; keep dl, ccache and feeds
+  distclean                 Run make distclean; run setup afterwards
+  push [-n] [dest]          Sync the project to the build host (rsync options after --)
+
+Environment:
+  OP_IMAGE    Container image (default: $IMAGE)
+  OP_DOCKER   Container command (default: docker)
+  OP_UID      Builder UID (default: host UID, or 1000 for root)
+  OP_GID      Builder GID (default: host GID, or 1000 for root)
+  APT_MIRROR  Apt mirror for image builds (default: mirrors.ustc.edu.cn; empty: Ubuntu)
+EOF
+}
+
+need_docker() {
+  command -v "$DOCKER" >/dev/null 2>&1 || die "Command not found: $DOCKER"
+}
+
+cmd_image() {
+  need_docker
+  local args=(build -t "$IMAGE" -f "$ROOT/docker/Dockerfile"
+    --build-arg "BUILDER_UID=$BUILD_UID" --build-arg "BUILDER_GID=$BUILD_GID")
+  # An explicitly empty mirror selects the Ubuntu sources.
+  [ -n "${APT_MIRROR+x}" ] && args+=(--build-arg "APT_MIRROR=$APT_MIRROR")
+  case "${1:-}" in
+    "") ;;
+    --no-cache) args+=(--no-cache) ;;
+    *) die "Unknown argument: $1" ;;
+  esac
+  args+=("$ROOT")
+  log "Building $IMAGE (UID=$BUILD_UID GID=$BUILD_GID)"
+  "$DOCKER" "${args[@]}"
+}
+
+# Give the non-root builder write access to caches and artifacts.
+ensure_writable_dirs() {
+  local d owner
+  for d in "$ROOT/workspace" "$ROOT/output"; do
+    [ -d "$d" ] || mkdir -p "$d"
+    owner="$(stat -c %u "$d" 2>/dev/null || echo "")"
+    [ "$owner" = "$BUILD_UID" ] && continue
+    if [ "$(id -u)" = "0" ]; then
+      log "Changing owner: ${d#"$ROOT"/} -> $BUILD_UID:$BUILD_GID"
+      chown -R "$BUILD_UID:$BUILD_GID" "$d"
+    else
+      warn "${d#"$ROOT"/} owner is $owner; builder UID $BUILD_UID may lack write access"
+    fi
+  done
+}
+
+# run_in_container <container-name-suffix> <command...>
+run_in_container() {
+  need_docker
+  [ -n "$("$DOCKER" images -q "$IMAGE" 2>/dev/null)" ] || die "Image $IMAGE not found; run: ./op image"
+  ensure_writable_dirs
+
+  local suffix="$1"
+  shift
+  local tty=()
+  [ -t 0 ] && [ -t 1 ] && tty=(-it)
+
+  "$DOCKER" run --rm ${tty[@]+"${tty[@]}"} \
+    --name "op-build-$suffix-$$" \
+    --network host \
+    -v "$ROOT:$MOUNT" \
+    -w "$MOUNT" \
+    -e "PYTHONPATH=$MOUNT/engine" \
+    "$IMAGE" "$@"
+}
+
+profile_names() {
+  local p names=()
+  for p in "$ROOT"/profiles/*/; do
+    [ -f "$p/profile.toml" ] || continue
+    p="${p%/}"
+    names+=("${p##*/}")
+  done
+  if [ ${#names[@]} -eq 0 ]; then
+    echo "none; copy examples/profile to profiles/<name>"
+  else
+    echo "${names[*]}"
+  fi
+}
+
+# Splits "<profile> [-j N]" into PROFILE / THREADS.
+parse_profile_args() {
+  local allow_threads="$1"
+  shift
+  PROFILE="${1:-}"
+  THREADS=""
+  [ -n "$PROFILE" ] || die "Missing profile (available: $(profile_names))"
+  [[ "$PROFILE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "Invalid profile name: $PROFILE"
+  [ -f "$ROOT/profiles/$PROFILE/profile.toml" ] \
+    || die "Unknown profile: $PROFILE (available: $(profile_names))"
+  shift
+  while [ $# -gt 0 ]; do
+    [ "$allow_threads" = 1 ] || die "Unknown argument: $1"
+    case "$1" in
+      -j)
+        [ $# -ge 2 ] || die "-j requires a positive integer"
+        THREADS="$2"
+        shift 2
+        ;;
+      -j*)
+        THREADS="${1#-j}"
+        shift
+        ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+    [[ "$THREADS" =~ ^[1-9][0-9]*$ ]] || die "-j requires a positive integer"
+  done
+}
+
+cmd_list() {
+  local d name desc
+  echo "profiles: $(profile_names)"
+  echo "features:"
+  for d in "$ROOT"/features/*/; do
+    [ -f "$d/feature.toml" ] || continue
+    name="${d%/}"
+    name="${name##*/}"
+    desc=$(sed -n 's/^description[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' \
+      "$d/feature.toml" | head -n 1)
+    printf '  %-12s %s\n' "$name" "$desc"
+  done
+}
+
+cmd_push() {
+  local REMOTE_HOST="" REMOTE_PATH="" SSH_PORT="" dest="" dry_run=0 extra=()
+  if [ -f "$ROOT/.push.conf" ]; then
+    # shellcheck disable=SC1091
+    . "$ROOT/.push.conf"
+  fi
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -n | --dry-run)
+        dry_run=1
+        shift
+        ;;
+      -h | --help)
+        cat <<'EOF'
+Usage: op push [-n] [user@host:/path] [-- rsync-options...]
+
+Sync the project and local profiles to a build host (defaults to
+REMOTE_HOST:REMOTE_PATH from .push.conf). Remote paths must be absolute, and
+the target must be missing, empty or an existing copy of this project. Remote
+workspace, output, .git, .push.conf and docker/certs/*.crt are preserved.
+  -n, --dry-run  Preview synchronization
+  --             Pass the remaining arguments to rsync
+EOF
+        return 0
+        ;;
+      --)
+        shift
+        extra=("$@")
+        break
+        ;;
+      -*)
+        die "Unknown option: $1 (pass rsync options after --)"
+        ;;
+      *)
+        [ -z "$dest" ] || die "Unexpected argument: $1 (pass rsync options after --)"
+        dest="$1"
+        shift
+        ;;
+    esac
+  done
+
+  if [ -z "$dest" ]; then
+    [ -n "$REMOTE_HOST" ] && [ -n "$REMOTE_PATH" ] \
+      || die "Set REMOTE_HOST and REMOTE_PATH in .push.conf, or pass user@host:/path"
+    dest="$REMOTE_HOST:$REMOTE_PATH"
+  fi
+  command -v rsync >/dev/null 2>&1 || die "Command not found: rsync"
+
+  # Like rsync, a colon before the first slash selects a remote host.
+  local host="" path="$dest" quoted ssh=(ssh) check status=0
+  if [[ "$dest" =~ ^[^/]*: ]]; then
+    host="${dest%%:*}"
+    path="${dest#*:}"
+    [[ "$path" = /* ]] || die "Remote path must be absolute: $dest"
+  fi
+  [ -n "$SSH_PORT" ] && ssh+=(-p "$SSH_PORT")
+  # Quote the path for the shell, including literal single quotes.
+  quoted=${path//\'/\'\\\'\'}
+  # rsync creates a missing target, but --delete removes everything else in an
+  # existing one; only empty directories and copies of this project are safe.
+  check="cd -P -- '$quoted' 2>/dev/null || exit 0
+[ -z \"\$(ls -A)\" ] || { [ -f op ] && [ -f engine/opbuild/__main__.py ]; } || exit 3"
+  if [ -n "$host" ]; then
+    "${ssh[@]}" "$host" "$check" || status=$?
+  else
+    sh -c "$check" || status=$?
+  fi
+  [ "$status" != 3 ] || die "Refusing to sync into $dest: it is neither empty nor a copy of this project"
+  [ "$status" = 0 ] || die "Failed to check $dest"
+
+  local rsync=(rsync -az --delete) pat
+  if rsync --help 2>&1 | grep -q -- '--info='; then
+    rsync+=("--info=stats1,progress2" --human-readable)
+  else
+    rsync+=(--stats)
+  fi
+  [ -n "$SSH_PORT" ] && rsync+=(-e "ssh -p $SSH_PORT")
+  [ "$dry_run" = 1 ] && rsync+=(-n)
+  # Excluded paths are also protected from remote deletion.
+  for pat in /workspace/ /output/ /.git/ /.push.conf '/docker/certs/*.crt' \
+    .DS_Store '*.swp' __pycache__/; do
+    rsync+=(--exclude "$pat")
+  done
+  [ ${#extra[@]} -gt 0 ] && rsync+=("${extra[@]}")
+  rsync+=("$ROOT/" "$dest")
+
+  log "Source: $ROOT/"
+  log "Target: $dest"
+  [ "$dry_run" = 1 ] && warn "Dry run; no files will be changed"
+  "${rsync[@]}"
+
+  if [ -n "$host" ] && [ "$dry_run" = 0 ]; then
+    local remote
+    # Verify the project before changing ownership; non-root users already own their files.
+    remote="cd -P -- '$quoted' && test \"\$PWD\" != / && test -f op && test -f engine/opbuild/__main__.py &&
+            if [ \"\$(id -u)\" = 0 ]; then find . -path ./workspace -prune -o -exec chown -h 1000:1000 -- {} +; fi"
+    log "Checking remote project ownership"
+    "${ssh[@]}" "$host" "$remote" || die "Failed to verify or change remote project ownership"
+  fi
+
+  log "Sync complete. Build on the remote host:"
+  echo "    ssh ${SSH_PORT:+-p $SSH_PORT }${dest%%:*} 'cd ${dest#*:} && ./op image && ./op build <profile>'"
+}
+
+[ $# -ge 1 ] || {
+  usage
+  exit 1
+}
+CMD="$1"
+shift
+
+case "$CMD" in
+  image)
+    cmd_image "$@"
+    ;;
+  setup | info)
+    parse_profile_args 0 "$@"
+    run_in_container "$CMD" python3 -m opbuild "$CMD" "$PROFILE"
+    ;;
+  build | compile)
+    parse_profile_args 1 "$@"
+    run_in_container "$CMD" python3 -m opbuild "$CMD" "$PROFILE" ${THREADS:+"$THREADS"}
+    ;;
+  clean | distclean)
+    [ $# -eq 0 ] || die "Unknown argument: $1"
+    run_in_container "$CMD" python3 -m opbuild "$CMD"
+    ;;
+  shell)
+    [ $# -eq 0 ] || die "Unknown argument: $1"
+    run_in_container shell bash -c "cd '$MOUNT/workspace/src' 2>/dev/null || cd '$MOUNT'; exec bash"
+    ;;
+  list)
+    cmd_list
+    ;;
+  push)
+    cmd_push "$@"
+    ;;
+  -h | --help | help)
+    usage
+    ;;
+  *)
+    usage
+    die "Unknown command: $CMD"
+    ;;
+esac

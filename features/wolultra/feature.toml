@@ -1,0 +1,8 @@
+description = "网络唤醒（luci-app-wolultra）"
+packages = ["luci-app-wolultra"]
+
+[source]
+type = "package"
+url = "https://github.com/VIKINGYFY/packages.git"
+ref = "main"
+subdir = "luci-app-wolultra"

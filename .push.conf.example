@@ -1,0 +1,10 @@
+# Copy to .push.conf (ignored by git) and fill in.
+
+# Remote host: user@host or a Host alias from ~/.ssh/config
+REMOTE_HOST="builder@192.168.1.10"
+
+# Absolute project path on the remote host; rsync creates its contents, not its parents
+REMOTE_PATH="/home/builder/op-build-jdcloud-re-cs-02"
+
+# SSH port when it is not 22
+SSH_PORT=""

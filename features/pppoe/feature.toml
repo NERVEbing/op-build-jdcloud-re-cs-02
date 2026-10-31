@@ -1,0 +1,13 @@
+description = "WAN 口 PPPoE 拨号"
+
+[params.username]
+type = "string"
+required = true
+secret = true
+min = 1
+
+[params.password]
+type = "string"
+required = true
+secret = true
+min = 1

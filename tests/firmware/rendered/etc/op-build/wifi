@@ -1,0 +1,51 @@
+config wifi 'main'
+	option country 'CN'
+	option quiet_log '1'
+
+config radios 'radios_radio0'
+	option channel '149'
+	option htmode 'HE80'
+
+config radios 'radios_radio1'
+	option channel '1'
+	option htmode 'HE20'
+
+config radios 'radios_radio2'
+	option channel '36'
+	option htmode 'HE80'
+
+config networks 'networks_guest'
+	option subnet '172.16.1.1/24'
+	option access 'internet'
+
+config networks 'networks_iot'
+	option subnet '172.16.2.1/24'
+	option access 'internet'
+
+config networks 'networks_wifi'
+	option subnet '172.16.0.1/24'
+	option access 'lan'
+
+config ap
+	option name 'main'
+	option radio 'radio0'
+	option ssid 'Main '\''quoted'\'' SSID'
+	option key 'main-key-12345'
+	option encryption 'psk2'
+	option network 'wifi'
+
+config ap
+	option name 'iot'
+	option radio 'radio1'
+	option ssid 'IoT'
+	option key 'iot-key-12345'
+	option encryption 'psk2'
+	option network 'iot'
+
+config ap
+	option name 'guest'
+	option radio 'radio2'
+	option ssid 'Guest'
+	option key 'guest-key-1234'
+	option encryption 'sae-mixed'
+	option network 'guest'

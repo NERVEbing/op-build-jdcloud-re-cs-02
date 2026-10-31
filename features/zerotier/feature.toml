@@ -1,0 +1,11 @@
+description = "ZeroTier 组网，WAN 重新上线后自动重启"
+packages = ["luci-app-zerotier"]
+
+[params.networks]
+type = "list"
+default = []
+secret = true
+
+[params.networks.items]
+type = "string"
+pattern = "[0-9a-f]{16}"

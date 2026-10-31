@@ -1,0 +1,1 @@
+description = "SSH 只监听 LAN 地址，允许密码登录"

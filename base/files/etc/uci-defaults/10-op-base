@@ -1,0 +1,25 @@
+#!/bin/sh
+# System defaults shared by every profile.
+
+uci -q batch <<EOF
+set system.@system[0].conloglevel='5'
+set system.@system[0].cronloglevel='9'
+set system.@system[0].zonename='Asia/Shanghai'
+set system.@system[0].timezone='CST-8'
+commit system
+EOF
+
+if uci -q get network.globals.ula_prefix >/dev/null; then
+  uci -q batch <<EOF
+delete network.globals.ula_prefix
+commit network
+EOF
+fi
+
+uci -q batch <<EOF
+set dhcp.@dnsmasq[0].sequential_ip='1'
+set dhcp.@dnsmasq[0].quietdhcp='1'
+commit dhcp
+EOF
+
+exit 0

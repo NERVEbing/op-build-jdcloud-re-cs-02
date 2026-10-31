@@ -1,0 +1,2 @@
+description = "zram 交换分区"
+packages = ["zram-swap"]

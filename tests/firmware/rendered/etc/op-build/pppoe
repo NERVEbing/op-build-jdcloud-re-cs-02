@@ -1,0 +1,3 @@
+config pppoe 'main'
+	option username 'user@isp'
+	option password 'p'\''a"ss w$rd'

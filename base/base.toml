@@ -1,0 +1,21 @@
+[source]
+url = "https://github.com/VIKINGYFY/immortalwrt.git"
+# The upstream default branch is "owrt"; always build the explicit branch.
+branch = "main"
+# Empty follows the branch head; a 40-character commit pins the source.
+commit = ""
+
+[target]
+target = "qualcommax"
+subtarget = "ipq60xx"
+device = "jdcloud_re-cs-02"
+
+[system]
+hostname = "ImmortalWrt"
+lan_ip = "192.168.1.1"
+dist = "ImmortalWrt"
+# version defaults to the build date (%y.%m)
+
+[build]
+# Fail when defconfig drops any requested configuration value.
+strict_config = true

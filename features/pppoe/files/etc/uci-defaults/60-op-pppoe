@@ -1,0 +1,22 @@
+#!/bin/sh
+# Dial the WAN port with PPPoE using the profile credentials.
+
+OP_TAG=op-pppoe
+# shellcheck source-path=SCRIPTDIR source=../../../../../base/files/usr/share/op-build/functions.sh
+. /usr/share/op-build/functions.sh
+
+username=$(op_param pppoe.main.username)
+password=$(op_param pppoe.main.password)
+[ -n "$username" ] && [ -n "$password" ] || op_fail "PPPoE credentials are missing"
+
+op_begin network
+op_set network.wan.proto=pppoe
+op_set network.wan.device=wan
+op_set network.wan.auto=1
+op_set "network.wan.username=$username"
+op_set "network.wan.password=$password"
+op_set network.wan.defaultroute=1
+op_set network.wan.peerdns=1
+uci -q delete network.wan6.proto
+op_commit
+exit 0

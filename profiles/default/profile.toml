@@ -1,0 +1,49 @@
+# Public default profile. Copy to profiles/<name>/ for personal settings.
+# Profiles other than default are ignored by Git; see README.md.
+features = [
+    "athena-led",
+    "fullconenat",
+    "nikki",
+    "ssh-lan",
+    "tools",
+    "watchcat",
+    "wifi",
+    "wolultra",
+    "zerotier",
+    "zram",
+]
+
+[system]
+hostname = "OpenWrt"
+lan_ip = "192.168.1.1"
+
+[wifi]
+country = "CN"
+quiet_log = true
+radios.radio0 = { channel = 149, htmode = "HE80" }
+radios.radio1 = { channel = 1, htmode = "HE20" }
+radios.radio2 = { channel = 36, htmode = "HE80" }
+networks.wifi = { subnet = "172.16.0.1/24", access = "lan" }
+networks.guest = { subnet = "172.16.1.1/24", access = "internet" }
+networks.iot = { subnet = "172.16.2.1/24", access = "internet" }
+
+[[wifi.ap]]
+name = "main"
+radio = "radio0"
+ssid = "OpenWrt"
+key = "change-this-password"
+network = "wifi"
+
+[[wifi.ap]]
+name = "iot"
+radio = "radio1"
+ssid = "OpenWrt-IoT"
+key = "change-this-password"
+network = "iot"
+
+[[wifi.ap]]
+name = "guest"
+radio = "radio2"
+ssid = "OpenWrt-Guest"
+key = "change-this-password"
+network = "guest"

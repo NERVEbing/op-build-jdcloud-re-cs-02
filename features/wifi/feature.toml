@@ -1,0 +1,87 @@
+description = "无线：驱动与固件、SSID、信道、独立网段与隔离"
+packages = [
+    "kmod-ath11k", "kmod-ath11k-ahb", "kmod-ath11k-pci",
+    "ath11k-firmware-ipq6018-ddwrt", "ath11k-firmware-qcn9074-ddwrt",
+    "ipq-wifi-jdcloud_re-cs-02", "wpad-openssl", "iwinfo",
+]
+
+[params.country]
+type = "string"
+default = "CN"
+pattern = "[A-Z]{2}"
+
+# Start hostapd with -q and set log_level=4 on every radio.
+[params.quiet_log]
+type = "boolean"
+default = false
+
+# radio0: 5 GHz IPQ6018, radio1: 2.4 GHz IPQ6018, radio2: 5 GHz QCN9074.
+[params.radios]
+type = "map"
+keys = "radio[0-2]"
+default = {}
+
+[params.radios.items]
+type = "table"
+
+[params.radios.items.fields.channel]
+type = "integer"
+
+[params.radios.items.fields.htmode]
+type = "string"
+enum = ["HE20", "HE40", "HE80", "HE160"]
+
+# Extra /24 networks; access "lan" joins the LAN zone, "internet" isolates clients.
+[params.networks]
+type = "map"
+keys = "[a-z][a-z0-9]{0,9}"
+default = {}
+
+[params.networks.items]
+type = "table"
+
+[params.networks.items.fields.subnet]
+type = "cidr"
+required = true
+
+[params.networks.items.fields.access]
+type = "string"
+required = true
+enum = ["lan", "internet"]
+
+[params.ap]
+type = "list"
+default = []
+
+[params.ap.items]
+type = "table"
+
+[params.ap.items.fields.name]
+type = "string"
+required = true
+pattern = "[a-z][a-z0-9_]{0,15}"
+
+[params.ap.items.fields.radio]
+type = "string"
+required = true
+enum = ["radio0", "radio1", "radio2"]
+
+[params.ap.items.fields.ssid]
+type = "string"
+required = true
+min = 1
+max = 32
+
+[params.ap.items.fields.key]
+type = "string"
+secret = true
+
+[params.ap.items.fields.encryption]
+type = "string"
+default = "psk2"
+enum = ["psk2", "psk-mixed", "sae", "sae-mixed", "none"]
+
+[params.ap.items.fields.network]
+type = "string"
+default = "lan"
+pattern = "[a-z][a-z0-9]{0,9}"

@@ -1,0 +1,7 @@
+description = "Nikki 代理（mihomo）"
+packages = ["luci-app-nikki"]
+
+[source]
+type = "feed"
+url = "https://github.com/nikkinikki-org/OpenWrt-nikki.git"
+ref = "v1.26.2"

@@ -1,0 +1,59 @@
+# Parameter reference. Copy to profiles/<name>/ for personal settings.
+# Profiles other than default are ignored by Git; see README.md.
+#
+# Optional files next to profile.toml:
+#   config.seed  extra Kconfig (feature-owned packages and target symbols are rejected)
+#   files/       firmware files, applied last and able to override any file
+#   hooks/       pre-feeds.sh, post-feeds.sh, post-config.sh build hooks
+#   banner       replaces the login banner
+
+# Features not listed here are removed from the image, including upstream device
+# defaults such as the wireless drivers and the LED screen app.
+features = [
+    "athena-led", "fullconenat", "nikki", "tools",
+    "watchcat", "wifi", "wolultra", "zram",
+    # "pppoe", "ssh-lan", "zerotier",
+]
+
+[system]
+hostname = "OpenWrt"
+lan_ip = "192.168.1.1"
+# dist = "ImmortalWrt"
+# version = "26.10"            # defaults to the build date
+
+# [source]
+# commit = "0123456789abcdef0123456789abcdef01234567"   # pin the upstream commit
+
+# [build]
+# strict_config = false        # only warn when defconfig drops requested values
+
+[wifi]
+country = "CN"
+quiet_log = false              # true: hostapd -q and log_level 4 on every radio
+
+# radio0: 5 GHz 149/153/157/161/165 (up to HE80, 165 only HE20)
+# radio1: 2.4 GHz 1-13 (up to HE40)
+# radio2: 5 GHz 36-64 (up to HE160)
+# Radios without an access point are disabled.
+radios.radio0 = { channel = 149, htmode = "HE80" }
+radios.radio1 = { channel = 1, htmode = "HE20" }
+radios.radio2 = { channel = 36, htmode = "HE80" }
+
+# Extra /24 networks; the gateway must be outside .100-.199 (the DHCP pool).
+# access = "lan" joins the LAN firewall zone; "internet" can only reach WAN.
+# networks.guest = { subnet = "172.16.1.1/24", access = "internet" }
+
+# [[wifi.ap]]
+# name = "main"                # wireless section name
+# radio = "radio0"
+# ssid = "MyWiFi"
+# key = "change-this-password"
+# encryption = "psk2"          # psk2 | psk-mixed | sae | sae-mixed | none
+# network = "lan"              # lan or a network defined above
+
+# [pppoe]
+# username = "account"
+# password = "password"
+
+# [zerotier]
+# networks = ["0123456789abcdef"]

@@ -1,0 +1,14 @@
+# Source trees and caches
+/workspace/
+
+# Build artifacts
+/output/
+
+# Push target (server address)
+/.push.conf
+
+# Build-host CA certificates stay on the build host
+/docker/certs/*.crt
+
+# Python bytecode
+__pycache__/

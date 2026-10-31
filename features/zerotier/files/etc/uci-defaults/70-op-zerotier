@@ -1,0 +1,42 @@
+#!/bin/sh
+# Join the profile's ZeroTier networks.
+
+OP_TAG=op-zerotier
+# shellcheck source-path=SCRIPTDIR source=../../../../../base/files/usr/share/op-build/functions.sh
+. /usr/share/op-build/functions.sh
+
+[ -x /etc/init.d/zerotier ] || exit 0
+networks=$(op_param zerotier.main.networks)
+[ -n "$networks" ] || exit 0
+
+op_begin zerotier
+uci -q delete zerotier.earth
+# Replace networks created earlier, and any other section joining the same IDs.
+for section in $(op_sections zerotier network); do
+    id=$(uci -q get "zerotier.$section.id")
+    case "$section" in
+        zt_*) uci delete "zerotier.$section" || exit 1; continue ;;
+    esac
+    case " $networks " in
+        *" $id "*) uci delete "zerotier.$section" || exit 1 ;;
+    esac
+done
+op_set zerotier.global=zerotier
+op_set zerotier.global.enabled=1
+op_set zerotier.global.fw_allow_input=1
+for id in $networks; do
+    case "$id" in
+        *[!0-9a-f]* | '') op_fail "invalid ZeroTier network ID" ;;
+    esac
+    [ ${#id} -eq 16 ] || op_fail "invalid ZeroTier network ID"
+    op_set "zerotier.zt_$id=network"
+    op_set "zerotier.zt_$id.id=$id"
+    op_set "zerotier.zt_$id.enabled=1"
+    op_set "zerotier.zt_$id.allow_managed=1"
+    op_set "zerotier.zt_$id.fw_allow_input=1"
+    op_set "zerotier.zt_$id.fw_allow_forward=1"
+    op_set "zerotier.zt_$id.fw_allow_masq=1"
+done
+op_commit
+/etc/init.d/zerotier enable
+exit 0

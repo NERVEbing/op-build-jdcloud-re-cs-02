@@ -1,0 +1,41 @@
+#!/bin/sh
+# Remove network configuration and isolation rules created by an earlier
+# op-build firmware; enabled features recreate theirs afterwards. Owned items:
+# device, dhcp and firewall sections named op_*, interfaces on op_* bridges,
+# their entries in zone network lists, and /etc/nftables.d/30-op-*.nft.
+
+OP_TAG=op-cleanup
+# shellcheck source-path=SCRIPTDIR source=../../usr/share/op-build/functions.sh
+. /usr/share/op-build/functions.sh
+
+op_begin network dhcp firewall
+
+owned=''
+for device in $(op_sections network device); do
+  case "$device" in op_*) ;; *) continue ;; esac
+  bridge=$(uci -q get "network.$device.name")
+  for interface in $(op_sections network interface); do
+    [ -n "$bridge" ] && [ "$(uci -q get "network.$interface.device")" = "$bridge" ] || continue
+    owned="$owned $interface"
+    uci delete "network.$interface" || exit 1
+  done
+  uci delete "network.$device" || exit 1
+done
+
+for config in dhcp firewall; do
+  for section in $(uci -q -X show "$config" | sed -n "s/^$config\.\(op_[^.=]*\)=.*/\1/p"); do
+    uci delete "$config.$section" || exit 1
+  done
+done
+
+for zone in $(op_sections firewall zone); do
+  for interface in $owned; do
+    case " $(uci -q get "firewall.$zone.network") " in
+      *" $interface "*) uci del_list "firewall.$zone.network=$interface" || exit 1 ;;
+    esac
+  done
+done
+
+rm -f /etc/nftables.d/30-op-*.nft || exit 1
+op_commit
+exit 0

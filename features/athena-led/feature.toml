@@ -1,0 +1,2 @@
+description = "前面板 LED 屏（luci-app-athena-led）"
+packages = ["luci-app-athena-led"]

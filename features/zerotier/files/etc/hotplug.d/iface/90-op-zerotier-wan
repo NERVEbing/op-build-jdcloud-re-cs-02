@@ -1,0 +1,12 @@
+#!/bin/sh
+# Restart ZeroTier when WAN comes up so it rebinds to the new address.
+
+[ "$ACTION" = ifup ] || exit 0
+[ "$INTERFACE" = wan ] || exit 0
+[ "$(uci -q get zerotier.global.enabled)" = 1 ] || exit 0
+
+# Let the normal boot sequence start ZeroTier if it is not running yet.
+pidof zerotier-one >/dev/null || exit 0
+
+logger -t zerotier-wan "WAN came up; restarting ZeroTier to refresh device bindings."
+/etc/init.d/zerotier restart

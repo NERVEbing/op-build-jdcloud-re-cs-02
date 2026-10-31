@@ -1,0 +1,24 @@
+# Run before fw4 and custom accept rules at priority 0.
+chain guest_pre_input {
+    type filter hook input priority -1; policy accept;
+
+    iifname "br-guest" meta nfproto ipv6 counter drop
+    iifname "br-guest" udp dport 67 counter accept
+    iifname "br-guest" ip daddr 172.16.1.1 meta l4proto { tcp, udp } th dport 53 counter accept
+    iifname "br-guest" counter drop
+}
+
+chain guest_pre_forward {
+    type filter hook forward priority -1; policy accept;
+
+    iifname "br-guest" meta nfproto ipv6 counter drop
+    oifname "br-guest" meta nfproto ipv6 counter drop
+    # Block private and non-public destinations even when routed through WAN.
+    iifname "br-guest" ip daddr {
+        0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8,
+        169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16,
+        198.18.0.0/15, 224.0.0.0/3
+    } counter drop
+    iifname "br-guest" oifname != { "wan", "pppoe-wan" } counter drop
+    oifname "br-guest" iifname != { "wan", "pppoe-wan" } counter drop
+}
